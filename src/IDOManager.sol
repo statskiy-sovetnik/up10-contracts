@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./EmergencyWithdrawAdmin.sol";
-import "./WithKYCRegistry.sol";
+import "./kyc/WithKYCRegistry.sol";
 import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -89,7 +89,6 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
 
 
 // ALLOCATION SETTINGS
-        uint256 minAllocation;
         uint256 minAllocationUSDT;
 
         uint256 totalAllocationByUser;
@@ -313,7 +312,6 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
         emit TwapSet(idoId, twapPriceUsdt);
     }
 
-
     function createIDO(IDOInput calldata idoInput) external onlyAdmin returns (uint256) {
         // (, , bool approved, ) = voting.projects(projectId);
         // require(approved, "Project not approved");
@@ -349,7 +347,6 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
             totalAllocation: idoInput.totalAllocationUSDT * PRICE_DECIMALS / idoInput.initialPriceUsdt,
             totalAllocationUSDT: idoInput.totalAllocationUSDT,
 
-            minAllocation: idoInput.minAllocationUSDT * PRICE_DECIMALS / idoInput.initialPriceUsdt,
             minAllocationUSDT: idoInput.minAllocationUSDT,
 
             initialPriceUsdt: idoInput.initialPriceUsdt,
@@ -744,7 +741,9 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
 
         ERC20 _tokenIn = ERC20(tokenIn);
 
+        // ? normalized to 18 decimals
         uint256 normalizedAmount = (amount * DECIMALS) / (10 ** _tokenIn.decimals());
+        // ? invested tokens converted to USDT
         uint256 amountInUSD = (normalizedAmount * staticPrice) / PRICE_DECIMALS;
 
         require(amountInUSD >= ido.minAllocationUSDT, "Amount must be greater than min allocation");
@@ -770,8 +769,6 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
             bonusesMultiplier) /
             ido.initialPriceUsdt /
             (PERCENT_DECIMALS * 100);
-
-        require(tokensBought >= ido.minAllocation, "Amount must be greater than min allocation");
 
         uint256 tokensBonus = tokensBought - (amountInUSD * PRICE_DECIMALS) / ido.initialPriceUsdt;
 
