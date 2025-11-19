@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./Errors.sol";
 
 abstract contract ReservesManager {
     using Math for uint256;
@@ -25,13 +26,13 @@ abstract contract ReservesManager {
     event AdminWithdrawal(uint256 indexed idoId, address indexed token, uint256 amount);
 
     modifier onlyReservesAdmin() {
-        require(msg.sender == reservesAdmin, "Only reserves admin");
+        require(msg.sender == reservesAdmin, OnlyReservesAdmin());
         _;
     }
 
     constructor(address _initialAdmin, address _usdt, address _usdc, address _flx) {
-        require(_initialAdmin != address(0), "Invalid admin address");
-        require(_usdt != address(0) && _usdc != address(0) && _flx != address(0), "Invalid token address");
+        require(_initialAdmin != address(0), InvalidZeroAddress());
+        require(_usdt != address(0) && _usdc != address(0) && _flx != address(0), InvalidTokenAddress());
 
         reservesAdmin = _initialAdmin;
         USDT = _usdt;
@@ -94,7 +95,7 @@ abstract contract ReservesManager {
         uint256 totalAllocated,
         uint256 totalRefundedTokens
     ) internal view returns (uint256 withdrawable) {
-        require(isStablecoin(token), "Not a stablecoin");
+        require(isStablecoin(token), NotAStablecoin());
 
         uint256 netRaised = totalRaised - totalRefunded;
         uint256 netAllocated = totalAllocated > totalRefundedTokens ? totalAllocated - totalRefundedTokens : 0;
@@ -130,8 +131,8 @@ abstract contract ReservesManager {
         uint256 totalAllocated,
         uint256 totalRefundedTokens
     ) internal {
-        require(amount > 0, "Invalid amount");
-        require(isStablecoin(token), "Can only withdraw stablecoins");
+        require(amount > 0, InvalidAmount());
+        require(isStablecoin(token), NotAStablecoin());
 
         uint256 withdrawable = _getWithdrawableAmount(
             idoId,
@@ -143,7 +144,7 @@ abstract contract ReservesManager {
             totalRefundedTokens
         );
 
-        require(amount <= withdrawable, "Exceeds withdrawable amount");
+        require(amount <= withdrawable, ExceedsWithdrawableAmount());
 
         adminWithdrawnInToken[idoId][token] += amount;
 
@@ -153,7 +154,7 @@ abstract contract ReservesManager {
     }
 
     function _setReservesAdmin(address _newAdmin) internal {
-        require(_newAdmin != address(0), "Invalid address");
+        require(_newAdmin != address(0), InvalidZeroAddress());
         address oldAdmin = reservesAdmin;
         reservesAdmin = _newAdmin;
         emit ReservesAdminChanged(oldAdmin, _newAdmin);

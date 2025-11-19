@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IIDOManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./Errors.sol";
 
 contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, WithKYCRegistry, WithAdminManager {
     using Math for uint256;
@@ -129,10 +130,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 amount,
         address tokenIn
     ) external nonReentrant onlyKYC {
-        require(
-            tokenIn == USDT || tokenIn == USDC || tokenIn == FLX,
-            "Invalid token"
-        );
+        require(tokenIn == USDT || tokenIn == USDC || tokenIn == FLX, InvalidToken());
 
         IDO storage ido = idos[idoId];
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -140,27 +138,21 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         IDOPricing memory pricing = idoPricing[idoId];
         UserInfo storage user = userInfo[idoId][msg.sender];
 
-        require(
-            ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime,
-            "IDO is ended"
-        );
-        require(
-            block.timestamp >= schedules.idoStartTime,
-            "IDO is not started yet"
-        );
-        require(pricing.initialPriceUsdt > 0, "Initial price not set");
-        require(user.investedToken == address(0), "You already invested");
+        require(ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime, IDOEnded());
+        require(block.timestamp >= schedules.idoStartTime, IDONotStarted());
+        require(pricing.initialPriceUsdt > 0, InvalidPrice());
+        require(user.investedToken == address(0), AlreadyInvested());
 
         ido.totalParticipants ++;
 
         uint256 staticPrice = staticPrices[tokenIn];
-        require(staticPrice > 0, "Static price not set");
+        require(staticPrice > 0, StaticPriceNotSet());
 
         ERC20 _tokenIn = ERC20(tokenIn);
         uint256 normalizedAmount = amount.mulDiv(DECIMALS, 10 ** _tokenIn.decimals());
         uint256 amountInUSD = _convertToUSDT(normalizedAmount, staticPrice);
 
-        require(amountInUSD >= ido.info.minAllocation, "Amount must be greater than min allocation");
+        require(amountInUSD >= ido.info.minAllocation, BelowMinAllocation());
 
         (uint256 bonusPercent, Phase phaseNow) = _getPhaseBonus(ido);
 
@@ -175,14 +167,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             .mulDiv(bonusesMultiplier, HUNDRED_PERCENT);
         uint256 tokensBonus = tokensBought - _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt);
 
-        require(
-            tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser,
-            "Exceeds max allocation per user"
-        );
-        require(
-            tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation,
-            "Exceeds total allocation"
-        );
+        require(tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser, ExceedsUserAllocation());
+        require(tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation, ExceedsTotalAllocation());
 
         user.allocatedTokens += tokensBought;
         user.allocatedBonus += tokensBonus;
@@ -202,18 +188,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         IDOSchedules memory schedules = idoSchedules[idoId];
         UserInfo storage user = userInfo[idoId][msg.sender];
 
-        require(
-            schedules.claimStartTime > 0 && block.timestamp >= schedules.claimStartTime,
-            "Claim not started"
-        );
-        require(ido.info.tokenAddress != address(0), 'Token is not set yet');
+        require(schedules.claimStartTime > 0 && block.timestamp >= schedules.claimStartTime, ClaimNotStarted());
+        require(ido.info.tokenAddress != address(0), TokenAddressNotSet());
 
         ERC20 token = ERC20(ido.info.tokenAddress);
 
         (uint256 tokensToClaim, uint256 bonusesToClaim) = _getTokensAvailableToClaim(schedules, user);
         uint256 userTokensAmountToClaim = tokensToClaim + bonusesToClaim;
-        require(userTokensAmountToClaim > 0, "Nothing to claim");
-        require(userTokensAmountToClaim + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, "Claim exceeds allocated tokens");
+        require(userTokensAmountToClaim > 0, NothingToClaim());
+        require(userTokensAmountToClaim + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, ClaimExceedsAllocated());
 
         uint256 totalTokensInTokensDecimals = userTokensAmountToClaim.mulDiv(10 ** token.decimals(), DECIMALS);
 
@@ -236,7 +219,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         UserInfo memory user = userInfo[idoId][msg.sender];
         UserInfo storage userStorage = userInfo[idoId][msg.sender];
 
-        require(_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund), "Refund is not available right now");
+        require(_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund), RefundNotAvailable());
 
         uint256 tokensToRefund = _getTokensAvailableToRefund(
             schedules,
@@ -253,7 +236,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             fullRefund
         );
 
-        require(tokensToRefund > 0, "Nothing to refund");
+        require(tokensToRefund > 0, NothingToRefund());
 
         uint256 bonusToSub;
         bonusToSub = user.allocatedBonus - user.refundedBonus - user.claimedBonus;
@@ -272,12 +255,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
         ERC20 token = ERC20(user.investedToken);
         uint256 investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
-        
-        require(
-            user.investedTokenAmountRefunded + investedTokensToRefundScaled <=
-                user.investedTokenAmount,
-            "Refund exceeds invested amount"
-        );
+
+        require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
 
         userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
 
@@ -484,15 +463,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         IDOInfo memory _idoInputInfo,
         IDOSchedules memory _idoInputSchedules
     ) internal pure {
-        require(_idoInputSchedules.idoStartTime < _idoInputSchedules.idoEndTime, "Invalid IDO time range");
-        require(_idoInputInfo.totalAllocationByUser > 0, "User Allocation Zero");
-        require(_idoInputInfo.totalAllocation > 0, "Allocation zero");
-        require(idoInput.initialPriceUsdt > 0, "Initial price zero");
+        require(_idoInputSchedules.idoStartTime < _idoInputSchedules.idoEndTime, InvalidIDOTimeRange());
+        require(_idoInputInfo.totalAllocationByUser > 0, InvalidUserAllocation());
+        require(_idoInputInfo.totalAllocation > 0, InvalidTotalAllocation());
+        require(idoInput.initialPriceUsdt > 0, InvalidPrice());
 
-        require(_idoInputSchedules.vestingDuration > 0, "Vesting duration zero");
-        require(_idoInputSchedules.unlockInterval > 0, "Unlock interval zero");
-        require(_idoInputSchedules.unlockInterval <= _idoInputSchedules.vestingDuration, "Unlock interval must be less than vesting duration");
-        require(_idoInputSchedules.tgeUnlockPercent <= HUNDRED_PERCENT, "Invalid TGE unlock percent");     
+        require(_idoInputSchedules.vestingDuration > 0, InvalidVestingDuration());
+        require(_idoInputSchedules.unlockInterval > 0, InvalidUnlockInterval());
+        require(_idoInputSchedules.unlockInterval <= _idoInputSchedules.vestingDuration, UnlockIntervalTooLarge());
+        require(_idoInputSchedules.tgeUnlockPercent <= HUNDRED_PERCENT, InvalidTGEUnlockPercent());
     }
 
     function _getTokensAvailableToClaim(
@@ -500,7 +479,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         UserInfo memory user
     ) internal view returns (uint256, uint256) {
         uint256 unlockedPercent = _getUnlockedPercent(schedules);
-        require(unlockedPercent > 0, "Tokens are locked");
+        require(unlockedPercent > 0, TokensLocked());
 
         uint256 unlockedWithoutBonus = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
         uint256 unlockedBonus = user.allocatedBonus.mulDiv(unlockedPercent, HUNDRED_PERCENT);
@@ -565,7 +544,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
     }
 
     function _currentPhase(IDO memory ido) internal pure returns (Phase) {
-        require(ido.info.totalAllocation > 0, "Invalid total allocation");
+        require(ido.info.totalAllocation > 0, InvalidTotalAllocationForPhase());
 
         uint256 oneThird = ido.info.totalAllocation / 3;
 
@@ -659,7 +638,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 amount,
         uint256 priceOfToken
     ) internal pure returns (uint256 amountInUSDT) {
-        require(priceOfToken > 0, "Price must be greater than zero");
+        require(priceOfToken > 0, InvalidPrice());
         amountInUSDT = amount.mulDiv(priceOfToken, PRICE_DECIMALS);
     }
 
@@ -667,7 +646,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 amountUSDT,
         uint256 priceOfToken
     ) internal pure returns (uint256 amountInToken) {
-        require(priceOfToken > 0, "Price must be greater than zero");
+        require(priceOfToken > 0, InvalidPrice());
         amountInToken = amountUSDT.mulDiv(PRICE_DECIMALS, priceOfToken);
     }
 
