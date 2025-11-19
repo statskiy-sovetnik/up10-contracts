@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-interface IKYCRegistry {
-    function isKYCed(address user) external view returns (bool);
-}
+import "../interfaces/IKYCRegistry.sol";
+import "../Errors.sol";
 
 abstract contract WithKYCRegistry {
     IKYCRegistry public kyc;
 
     modifier onlyKYC() {
-        require(kyc.isKYCed(msg.sender), "KYC required");
+        require(kyc.isKYCed(msg.sender), KYCRequired());
         _;
     }
 

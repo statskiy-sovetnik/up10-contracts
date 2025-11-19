@@ -2,12 +2,13 @@
 pragma solidity ^0.8.26;
 
 import "../interfaces/IAdminManager.sol";
+import "../Errors.sol";
 
 abstract contract WithAdminManager {
     IAdminManager public adminManager;
 
     modifier onlyAdmin() {
-        require(adminManager.isAdminAddress(msg.sender), "Not admin");
+        require(adminManager.isAdminAddress(msg.sender), CallerNotAdmin());
         _;
     }
 
