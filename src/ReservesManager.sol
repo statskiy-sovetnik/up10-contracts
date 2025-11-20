@@ -17,13 +17,28 @@ abstract contract ReservesManager {
     address public immutable USDC;
     address public immutable FLX;
 
-    // Track stablecoins already withdrawn by admin per IDO per token
-    mapping(uint256 => mapping(address => uint256)) public adminWithdrawnInToken;
+    // Track stablecoins already withdrawn by reserves admin per IDO per token
+    mapping(uint256 => mapping(address => uint256)) public stablecoinsWithdrawnInToken;
+
+    // Track penalty fees collected per IDO per stablecoin
+    mapping(uint256 => mapping(address => uint256)) public penaltyFeesCollected;
+
+    // Track unsold tokens withdrawn per IDO
+    mapping(uint256 => uint256) public unsoldTokensWithdrawn;
+
+    // Track refunded tokens withdrawn per IDO
+    mapping(uint256 => uint256) public refundedTokensWithdrawn;
+
+    // Track penalty fees withdrawn per IDO per stablecoin
+    mapping(uint256 => mapping(address => uint256)) public penaltyFeesWithdrawn;
 
     uint32 private constant HUNDRED_PERCENT = 10_000_000;
 
     event ReservesAdminChanged(address indexed oldAdmin, address indexed newAdmin);
     event AdminWithdrawal(uint256 indexed idoId, address indexed token, uint256 amount);
+    event UnsoldTokensWithdrawn(uint256 indexed idoId, address indexed token, uint256 amount);
+    event RefundedTokensWithdrawn(uint256 indexed idoId, address indexed token, uint256 amount);
+    event PenaltyFeesWithdrawn(uint256 indexed idoId, address indexed stablecoin, uint256 amount);
 
     modifier onlyReservesAdmin() {
         require(msg.sender == reservesAdmin, OnlyReservesAdmin());
@@ -53,11 +68,29 @@ abstract contract ReservesManager {
      * @notice Abstract function - must be implemented by child contract
      * @dev Child should read storage and call internal functions
      */
-    function adminWithdraw(
+    function withdrawStablecoins(
         uint256 idoId,
         address token,
         uint256 amount
     ) external virtual;
+
+    /**
+     * @notice Abstract function - must be implemented by child contract
+     * @dev Withdraws unsold tokens after IDO ends
+     */
+    function withdrawUnsoldTokens(uint256 idoId) external virtual;
+
+    /**
+     * @notice Abstract function - must be implemented by child contract
+     * @dev Withdraws tokens that were refunded by users
+     */
+    function withdrawRefundedTokens(uint256 idoId) external virtual;
+
+    /**
+     * @notice Abstract function - must be implemented by child contract
+     * @dev Withdraws penalty fees collected from refunds
+     */
+    function withdrawPenaltyFees(uint256 idoId, address stablecoin) external virtual;
 
     function changeReservesAdmin(
         address newAdmin
@@ -104,13 +137,13 @@ abstract contract ReservesManager {
         uint256 claimedPercent = totalClaimed.mulDiv(HUNDRED_PERCENT, netAllocated);
         uint256 unlockedAmount = netRaised.mulDiv(claimedPercent, HUNDRED_PERCENT);
 
-        uint256 withdrawn = adminWithdrawnInToken[idoId][token];
+        uint256 withdrawn = stablecoinsWithdrawnInToken[idoId][token];
 
         return unlockedAmount > withdrawn ? unlockedAmount - withdrawn : 0;
     }
 
     /**
-     * @notice Internal function to execute admin withdrawal
+     * @notice Internal function to execute stablecoin withdrawal
      * @dev All validation happens here
      * @param idoId The IDO identifier
      * @param token The stablecoin address
@@ -121,7 +154,7 @@ abstract contract ReservesManager {
      * @param totalAllocated Total tokens allocated for this IDO
      * @param totalRefundedTokens Total tokens refunded for this IDO
      */
-    function _adminWithdraw(
+    function _withdrawStablecoins(
         uint256 idoId,
         address token,
         uint256 amount,
@@ -146,11 +179,115 @@ abstract contract ReservesManager {
 
         require(amount <= withdrawable, ExceedsWithdrawableAmount());
 
-        adminWithdrawnInToken[idoId][token] += amount;
+        stablecoinsWithdrawnInToken[idoId][token] += amount;
 
         IERC20(token).safeTransfer(msg.sender, amount);
 
         emit AdminWithdrawal(idoId, token, amount);
+    }
+
+    /**
+     * @notice Internal function to withdraw unsold tokens
+     * @param idoId The IDO identifier
+     * @param tokenAddress The project token address
+     * @param totalAllocation Total tokens allocated for the IDO
+     * @param totalAllocated Total tokens actually sold/allocated to users
+     * @param idoEndTime When the IDO ends
+     */
+    function _withdrawUnsoldTokens(
+        uint256 idoId,
+        address tokenAddress,
+        uint256 totalAllocation,
+        uint256 totalAllocated,
+        uint64 idoEndTime
+    ) internal {
+        // Check IDO has ended
+        require(block.timestamp > idoEndTime, IDONotEnded());
+
+        // Check token address is set
+        require(tokenAddress != address(0), InvalidZeroAddress());
+
+        // Calculate unsold tokens
+        uint256 unsoldTokens = totalAllocation - totalAllocated;
+        require(unsoldTokens > 0, NoUnsoldTokens());
+
+        // Check we haven't already withdrawn these tokens
+        require(unsoldTokensWithdrawn[idoId] == 0, InsufficientTokensAvailable());
+
+        // Mark as withdrawn
+        unsoldTokensWithdrawn[idoId] = unsoldTokens;
+
+        // Transfer tokens to reserves admin
+        IERC20(tokenAddress).safeTransfer(msg.sender, unsoldTokens);
+
+        emit UnsoldTokensWithdrawn(idoId, tokenAddress, unsoldTokens);
+    }
+
+    /**
+     * @notice Internal function to withdraw refunded tokens
+     * @param idoId The IDO identifier
+     * @param tokenAddress The project token address
+     * @param totalRefunded Total regular tokens refunded
+     * @param refundedBonus Total bonus tokens refunded
+     */
+    function _withdrawRefundedTokens(
+        uint256 idoId,
+        address tokenAddress,
+        uint256 totalRefunded,
+        uint256 refundedBonus
+    ) internal {
+        // Check token address is set
+        require(tokenAddress != address(0), InvalidZeroAddress());
+
+        // Calculate refunded tokens available
+        uint256 refundedTokens = totalRefunded + refundedBonus;
+        require(refundedTokens > 0, NoRefundedTokens());
+
+        // Calculate how much we can still withdraw
+        uint256 alreadyWithdrawn = refundedTokensWithdrawn[idoId];
+        require(refundedTokens > alreadyWithdrawn, NoRefundedTokens());
+
+        uint256 availableToWithdraw = refundedTokens - alreadyWithdrawn;
+
+        // Mark as withdrawn
+        refundedTokensWithdrawn[idoId] = refundedTokens;
+
+        // Transfer tokens to reserves admin
+        IERC20(tokenAddress).safeTransfer(msg.sender, availableToWithdraw);
+
+        emit RefundedTokensWithdrawn(idoId, tokenAddress, availableToWithdraw);
+    }
+
+    /**
+     * @notice Internal function to withdraw penalty fees
+     * @param idoId The IDO identifier
+     * @param stablecoin The stablecoin address
+     * @param penaltyFeesCollectedAmount Total penalty fees collected for this IDO in this stablecoin
+     */
+    function _withdrawPenaltyFees(
+        uint256 idoId,
+        address stablecoin,
+        uint256 penaltyFeesCollectedAmount
+    ) internal {
+        // Validate stablecoin
+        require(isStablecoin(stablecoin), NotAStablecoin());
+
+        // Check penalty fees collected
+        require(penaltyFeesCollectedAmount > 0, NoPenaltyFees());
+
+        // Calculate how much we can still withdraw
+        uint256 alreadyWithdrawn = penaltyFeesWithdrawn[idoId][stablecoin];
+        require(penaltyFeesCollectedAmount > alreadyWithdrawn, NoPenaltyFees());
+
+        uint256 availableToWithdraw = penaltyFeesCollectedAmount - alreadyWithdrawn;
+
+        // Mark as withdrawn
+        penaltyFeesWithdrawn[idoId][stablecoin] = penaltyFeesCollectedAmount;
+
+        // Transfer stablecoins to reserves admin
+        IERC20(stablecoin).safeTransfer(msg.sender, availableToWithdraw);
+
+        emit PenaltyFeesWithdrawn(idoId, stablecoin, availableToWithdraw);
     }
 
     function _setReservesAdmin(address _newAdmin) internal {

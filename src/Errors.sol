@@ -28,6 +28,21 @@ error ExceedsWithdrawableAmount();
 /// @notice Thrown when caller is not the reserves admin
 error OnlyReservesAdmin();
 
+/// @notice Thrown when IDO has not ended yet
+error IDONotEnded();
+
+/// @notice Thrown when there are no unsold tokens to withdraw
+error NoUnsoldTokens();
+
+/// @notice Thrown when there are no refunded tokens to withdraw
+error NoRefundedTokens();
+
+/// @notice Thrown when there are no penalty fees to withdraw
+error NoPenaltyFees();
+
+/// @notice Thrown when attempting to withdraw more than available
+error InsufficientTokensAvailable();
+
 // ============================================
 // KYCRegistry Errors
 // ============================================
@@ -124,3 +139,6 @@ error TokensLocked();
 
 /// @notice Thrown when total allocation is invalid for phase calculation
 error InvalidTotalAllocationForPhase();
+
+/// @notice Thrown when IDO contract has insufficient token balance for claims
+error InsufficientIDOContractBalance();

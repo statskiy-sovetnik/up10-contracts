@@ -199,6 +199,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         require(userTokensAmountToClaim + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, ClaimExceedsAllocated());
 
         uint256 totalTokensInTokensDecimals = userTokensAmountToClaim.mulDiv(10 ** token.decimals(), DECIMALS);
+        require(token.balanceOf(address(this)) >= totalTokensInTokensDecimals, InsufficientIDOContractBalance());
 
         user.claimed = true;
         user.claimedTokens += userTokensAmountToClaim;
@@ -247,7 +248,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         idoRefundInfo[idoId].totalRefunded += tokensToRefund;
         idoRefundInfo[idoId].refundedBonus += bonusToSub;
 
-        uint256 refundedUsdt = _convertToUSDT(tokensToRefund, pricing.initialPriceUsdt).mulDiv(percentToReturn, HUNDRED_PERCENT);
+        uint256 fullRefundUsdt = _convertToUSDT(tokensToRefund, pricing.initialPriceUsdt);
+        uint256 refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);
 
         idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
         userStorage.refundedUsdt += refundedUsdt;
@@ -263,6 +265,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         // Track stablecoin refunded for this IDO
         totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
 
+        // Track penalty fees collected (difference between full refund and actual refund)
+        if (percentToReturn < HUNDRED_PERCENT) {
+            uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
+            uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, staticPrices[user.investedToken]);
+            uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** token.decimals(), DECIMALS);
+            penaltyFeesCollected[idoId][user.investedToken] += penaltyScaled;
+        }
+
         IERC20(address(token)).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
@@ -272,21 +282,66 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
      * @notice Implementation of abstract function - thin wrapper with no logic
      * @dev Reads storage and calls internal functions
      */
-    function adminWithdraw(
+    function withdrawStablecoins(
         uint256 idoId,
         address token,
         uint256 amount
     ) external override onlyReservesAdmin {
 
-        _adminWithdraw(
-            idoId, 
-            token, 
-            amount, 
+        _withdrawStablecoins(
+            idoId,
+            token,
+            amount,
             totalRaisedInToken[idoId][token],
             totalRefundedInToken[idoId][token],
             totalClaimedTokens[idoId],
             idos[idoId].info.totalAllocated,
             idoRefundInfo[idoId].totalRefunded + idoRefundInfo[idoId].refundedBonus
+        );
+    }
+
+    /**
+     * @notice Implementation of abstract function - thin wrapper with no logic
+     * @dev Reads storage and calls internal functions
+     */
+    function withdrawUnsoldTokens(uint256 idoId) external override onlyReservesAdmin {
+        IDOInfo memory info = idos[idoId].info;
+        IDOSchedules memory schedules = idoSchedules[idoId];
+
+        _withdrawUnsoldTokens(
+            idoId,
+            info.tokenAddress,
+            info.totalAllocation,
+            info.totalAllocated,
+            schedules.idoEndTime
+        );
+    }
+
+    /**
+     * @notice Implementation of abstract function - thin wrapper with no logic
+     * @dev Reads storage and calls internal functions
+     */
+    function withdrawRefundedTokens(uint256 idoId) external override onlyReservesAdmin {
+        IDOInfo memory info = idos[idoId].info;
+        IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
+
+        _withdrawRefundedTokens(
+            idoId,
+            info.tokenAddress,
+            refundInfo.totalRefunded,
+            refundInfo.refundedBonus
+        );
+    }
+
+    /**
+     * @notice Implementation of abstract function - thin wrapper with no logic
+     * @dev Reads storage and calls internal functions
+     */
+    function withdrawPenaltyFees(uint256 idoId, address stablecoin) external override onlyReservesAdmin {
+        _withdrawPenaltyFees(
+            idoId,
+            stablecoin,
+            penaltyFeesCollected[idoId][stablecoin]
         );
     }
 

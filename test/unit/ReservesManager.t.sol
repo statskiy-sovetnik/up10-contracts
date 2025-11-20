@@ -64,13 +64,13 @@ contract ReservesManagerHarness is ReservesManager {
     }
 
     // Implement abstract function
-    function adminWithdraw(
+    function withdrawStablecoins(
         uint256 idoId,
         address token,
         uint256 amount
     ) external override onlyReservesAdmin {
         TestIDO memory ido = testIdos[idoId];
-        _adminWithdraw(
+        _withdrawStablecoins(
             idoId,
             token,
             amount,
@@ -80,6 +80,19 @@ contract ReservesManagerHarness is ReservesManager {
             ido.totalAllocated,
             ido.totalRefundedTokens
         );
+    }
+
+    // Stub implementations for new withdrawal functions (not tested in this unit test)
+    function withdrawUnsoldTokens(uint256) external pure override {
+        revert("Not implemented in test harness");
+    }
+
+    function withdrawRefundedTokens(uint256) external pure override {
+        revert("Not implemented in test harness");
+    }
+
+    function withdrawPenaltyFees(uint256, address) external pure override {
+        revert("Not implemented in test harness");
     }
 
     // Helper to set test data
@@ -339,7 +352,7 @@ contract ReservesManagerTest is Test {
 
         // Admin withdraws 600 USDT
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 600e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 600e6);
 
         // Check remaining withdrawable
         uint256 withdrawable = manager.getWithdrawableAmount(idoId, address(usdt));
@@ -398,7 +411,7 @@ contract ReservesManagerTest is Test {
 
         // Withdraw everything
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), totalRaised);
+        manager.withdrawStablecoins(idoId, address(usdt), totalRaised);
 
         uint256 withdrawable = manager.getWithdrawableAmount(idoId, address(usdt));
         assertEq(withdrawable, 0);
@@ -415,7 +428,7 @@ contract ReservesManagerTest is Test {
 
         // Withdraw 500
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
 
         // Manually increase withdrawn amount beyond unlocked (simulating edge case)
         // Note: In practice this shouldn't happen, but we test the safety check
@@ -478,10 +491,10 @@ contract ReservesManagerTest is Test {
     }
 
     // ============================================
-    // _adminWithdraw Tests (16 tests)
+    // _withdrawStablecoins Tests (16 tests)
     // ============================================
 
-    function test_adminWithdraw_Success_PartialWithdrawal() public {
+    function test_withdrawStablecoins_Success_PartialWithdrawal() public {
         uint256 idoId = 1;
         uint256 totalRaised = 1000e6;
         uint256 totalAllocated = 100e18;
@@ -493,13 +506,13 @@ contract ReservesManagerTest is Test {
         uint256 adminBalanceBefore = usdt.balanceOf(admin);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 400e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 400e6);
 
         assertEq(usdt.balanceOf(admin), adminBalanceBefore + 400e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 400e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 400e6);
     }
 
-    function test_adminWithdraw_Success_FullWithdrawal() public {
+    function test_withdrawStablecoins_Success_FullWithdrawal() public {
         uint256 idoId = 1;
         uint256 totalRaised = 1000e6;
         uint256 totalAllocated = 100e18;
@@ -509,13 +522,13 @@ contract ReservesManagerTest is Test {
         _fundContract(address(usdt), totalRaised);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), totalRaised);
+        manager.withdrawStablecoins(idoId, address(usdt), totalRaised);
 
         assertEq(usdt.balanceOf(admin), totalRaised);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), totalRaised);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), totalRaised);
     }
 
-    function test_adminWithdraw_Success_MultipleWithdrawals() public {
+    function test_withdrawStablecoins_Success_MultipleWithdrawals() public {
         uint256 idoId = 1;
         uint256 totalRaised = 1000e6;
         uint256 totalAllocated = 100e18;
@@ -525,40 +538,40 @@ contract ReservesManagerTest is Test {
 
         // First withdrawal - 25% claimed
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 100e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 100e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 100e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 100e6);
 
         // Update: 50% claimed
         _createTestIDO(idoId, totalRaised, 0, 50e18, totalAllocated, 0);
 
         // Second withdrawal
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 150e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 250e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 150e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 250e6);
 
         // Update: 100% claimed
         _createTestIDO(idoId, totalRaised, 0, 100e18, totalAllocated, 0);
 
         // Third withdrawal
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 750e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 1000e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 750e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 1000e6);
     }
 
-    function test_adminWithdraw_Success_UpdatesMapping() public {
+    function test_withdrawStablecoins_Success_UpdatesMapping() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
 
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 0);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 0);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
 
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 500e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 500e6);
     }
 
-    function test_adminWithdraw_Success_EmitsEvent() public {
+    function test_withdrawStablecoins_Success_EmitsEvent() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
@@ -567,10 +580,10 @@ contract ReservesManagerTest is Test {
         emit ReservesManager.AdminWithdrawal(idoId, address(usdt), 500e6);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
     }
 
-    function test_adminWithdraw_Success_TransfersTokens() public {
+    function test_withdrawStablecoins_Success_TransfersTokens() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
@@ -579,65 +592,65 @@ contract ReservesManagerTest is Test {
         uint256 adminBalanceBefore = usdt.balanceOf(admin);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
 
         assertEq(usdt.balanceOf(address(manager)), contractBalanceBefore - 500e6);
         assertEq(usdt.balanceOf(admin), adminBalanceBefore + 500e6);
     }
 
-    function test_adminWithdraw_Success_WithUSDT() public {
+    function test_withdrawStablecoins_Success_WithUSDT() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
 
         assertEq(usdt.balanceOf(admin), 500e6);
     }
 
-    function test_adminWithdraw_Success_WithUSDC() public {
+    function test_withdrawStablecoins_Success_WithUSDC() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdc), 1000e6);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdc), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdc), 500e6);
 
         assertEq(usdc.balanceOf(admin), 500e6);
     }
 
-    function test_adminWithdraw_Success_WithFLX() public {
+    function test_withdrawStablecoins_Success_WithFLX() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e18, 0, 100e18, 100e18, 0);
         _fundContract(address(flx), 1000e18);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(flx), 500e18);
+        manager.withdrawStablecoins(idoId, address(flx), 500e18);
 
         assertEq(flx.balanceOf(admin), 500e18);
     }
 
-    function test_adminWithdraw_RevertsWithZeroAmount() public {
+    function test_withdrawStablecoins_RevertsWithZeroAmount() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
-        manager.adminWithdraw(idoId, address(usdt), 0);
+        manager.withdrawStablecoins(idoId, address(usdt), 0);
     }
 
-    function test_adminWithdraw_RevertsWithNotAStablecoin() public {
+    function test_withdrawStablecoins_RevertsWithNotAStablecoin() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSignature("NotAStablecoin()"));
-        manager.adminWithdraw(idoId, address(randomToken), 500e6);
+        manager.withdrawStablecoins(idoId, address(randomToken), 500e6);
     }
 
-    function test_adminWithdraw_RevertsWithExceedsWithdrawable() public {
+    function test_withdrawStablecoins_RevertsWithExceedsWithdrawable() public {
         uint256 idoId = 1;
         uint256 totalRaised = 1000e6;
         uint256 totalAllocated = 100e18;
@@ -648,20 +661,20 @@ contract ReservesManagerTest is Test {
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSignature("ExceedsWithdrawableAmount()"));
-        manager.adminWithdraw(idoId, address(usdt), 600e6); // Try to withdraw more than 500
+        manager.withdrawStablecoins(idoId, address(usdt), 600e6); // Try to withdraw more than 500
     }
 
-    function test_adminWithdraw_RevertsWithExceedsWithdrawable_WhenNothingUnlocked() public {
+    function test_withdrawStablecoins_RevertsWithExceedsWithdrawable_WhenNothingUnlocked() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 0, 100e18, 0); // Nothing claimed
         _fundContract(address(usdt), 1000e6);
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSignature("ExceedsWithdrawableAmount()"));
-        manager.adminWithdraw(idoId, address(usdt), 1); // Can't withdraw even 1 wei
+        manager.withdrawStablecoins(idoId, address(usdt), 1); // Can't withdraw even 1 wei
     }
 
-    function test_adminWithdraw_Success_AfterPartialClaims() public {
+    function test_withdrawStablecoins_Success_AfterPartialClaims() public {
         uint256 idoId = 1;
         uint256 totalRaised = 1000e6;
         uint256 totalAllocated = 100e18;
@@ -671,12 +684,12 @@ contract ReservesManagerTest is Test {
         _fundContract(address(usdt), totalRaised);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 300e6); // 30% of raised
+        manager.withdrawStablecoins(idoId, address(usdt), 300e6); // 30% of raised
 
         assertEq(usdt.balanceOf(admin), 300e6);
     }
 
-    function test_adminWithdraw_Success_SeparateTrackingPerToken() public {
+    function test_withdrawStablecoins_Success_SeparateTrackingPerToken() public {
         uint256 idoId = 1;
         _createTestIDO(idoId, 1000e6, 0, 100e18, 100e18, 0);
         _fundContract(address(usdt), 1000e6);
@@ -684,15 +697,15 @@ contract ReservesManagerTest is Test {
 
         // Withdraw from USDT
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 400e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 400e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdc)), 0);
+        manager.withdrawStablecoins(idoId, address(usdt), 400e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 400e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdc)), 0);
 
         // Withdraw from USDC
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdc), 200e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 400e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdc)), 200e6);
+        manager.withdrawStablecoins(idoId, address(usdc), 200e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 400e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdc)), 200e6);
     }
 
     // ============================================
@@ -758,19 +771,19 @@ contract ReservesManagerTest is Test {
         _createTestIDO(idoId, totalRaised, 0, 25e18, totalAllocated, 0);
         assertEq(manager.getWithdrawableAmount(idoId, address(usdt)), 250e6);
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 250e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 250e6);
 
         // Stage 3: 50% claimed - can withdraw additional 250
         _createTestIDO(idoId, totalRaised, 0, 50e18, totalAllocated, 0);
         assertEq(manager.getWithdrawableAmount(idoId, address(usdt)), 250e6);
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 250e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 250e6);
 
         // Stage 4: 100% claimed - can withdraw remaining 500
         _createTestIDO(idoId, totalRaised, 0, 100e18, totalAllocated, 0);
         assertEq(manager.getWithdrawableAmount(idoId, address(usdt)), 500e6);
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 500e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 500e6);
 
         // Stage 5: All withdrawn
         assertEq(manager.getWithdrawableAmount(idoId, address(usdt)), 0);
@@ -794,14 +807,14 @@ contract ReservesManagerTest is Test {
 
         // Withdraw from each independently
         vm.startPrank(admin);
-        manager.adminWithdraw(1, address(usdt), 1000e6);
-        manager.adminWithdraw(2, address(usdt), 500e6);
+        manager.withdrawStablecoins(1, address(usdt), 1000e6);
+        manager.withdrawStablecoins(2, address(usdt), 500e6);
         vm.stopPrank();
 
         // Verify tracking
-        assertEq(manager.adminWithdrawnInToken(1, address(usdt)), 1000e6);
-        assertEq(manager.adminWithdrawnInToken(2, address(usdt)), 500e6);
-        assertEq(manager.adminWithdrawnInToken(3, address(usdt)), 0);
+        assertEq(manager.stablecoinsWithdrawnInToken(1, address(usdt)), 1000e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(2, address(usdt)), 500e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(3, address(usdt)), 0);
     }
 
     function test_integration_PrecisionHandling() public {
@@ -821,7 +834,7 @@ contract ReservesManagerTest is Test {
         assertEq(withdrawable, 332999966);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), withdrawable);
+        manager.withdrawStablecoins(idoId, address(usdt), withdrawable);
 
         assertEq(usdt.balanceOf(admin), 332999966);
     }
@@ -843,9 +856,9 @@ contract ReservesManagerTest is Test {
         _fundContract(address(usdt), 1000e6);
 
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 1);
+        manager.withdrawStablecoins(idoId, address(usdt), 1);
 
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 1);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 1);
         assertEq(usdt.balanceOf(admin), 1);
     }
 
@@ -870,7 +883,7 @@ contract ReservesManagerTest is Test {
 
         // Original admin withdraws 400
         vm.prank(admin);
-        manager.adminWithdraw(idoId, address(usdt), 400e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 400e6);
 
         // Change admin
         vm.prank(admin);
@@ -878,10 +891,10 @@ contract ReservesManagerTest is Test {
 
         // New admin can withdraw remaining
         vm.prank(newAdmin);
-        manager.adminWithdraw(idoId, address(usdt), 600e6);
+        manager.withdrawStablecoins(idoId, address(usdt), 600e6);
 
         assertEq(usdt.balanceOf(newAdmin), 600e6);
-        assertEq(manager.adminWithdrawnInToken(idoId, address(usdt)), 1000e6);
+        assertEq(manager.stablecoinsWithdrawnInToken(idoId, address(usdt)), 1000e6);
     }
 
     function test_edgeCase_ZeroRefundedTokens() public {
