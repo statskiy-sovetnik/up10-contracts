@@ -4,9 +4,10 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./interfaces/IReservesManager.sol";
 import "./Errors.sol";
 
-abstract contract ReservesManager {
+abstract contract ReservesManager is IReservesManager {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -55,61 +56,43 @@ abstract contract ReservesManager {
         FLX = _flx;
     }
 
-    /**
-     * @notice Abstract function - must be implemented by child contract
-     * @dev Child should read storage and pass to _getWithdrawableAmount
-     */
+    /// @inheritdoc IReservesManager
     function getWithdrawableAmount(
         uint256 idoId,
         address token
     ) external view virtual returns (uint256);
 
-    /**
-     * @notice Abstract function - must be implemented by child contract
-     * @dev Child should read storage and call internal functions
-     */
+    /// @inheritdoc IReservesManager
     function withdrawStablecoins(
         uint256 idoId,
         address token,
         uint256 amount
     ) external virtual;
 
-    /**
-     * @notice Abstract function - must be implemented by child contract
-     * @dev Withdraws unsold tokens after IDO ends
-     */
+    /// @inheritdoc IReservesManager
     function withdrawUnsoldTokens(uint256 idoId) external virtual;
 
-    /**
-     * @notice Abstract function - must be implemented by child contract
-     * @dev Withdraws tokens that were refunded by users
-     */
+    /// @inheritdoc IReservesManager
     function withdrawRefundedTokens(uint256 idoId) external virtual;
 
-    /**
-     * @notice Abstract function - must be implemented by child contract
-     * @dev Withdraws penalty fees collected from refunds
-     */
+    /// @inheritdoc IReservesManager
     function withdrawPenaltyFees(uint256 idoId, address stablecoin) external virtual;
 
+    /// @inheritdoc IReservesManager
     function changeReservesAdmin(
         address newAdmin
     ) external onlyReservesAdmin {
         _setReservesAdmin(newAdmin);
     }
 
-    /**
-     * @notice Checks if a token is one of the accepted stablecoins
-     * @param token The token address to check
-     * @return bool True if the token is a stablecoin
-     */
+    /// @inheritdoc IReservesManager
     function isStablecoin(address token) public view returns (bool) {
         return token == USDT || token == USDC || token == FLX;
     }
 
     /**
      * @notice Internal function to calculate withdrawable amount
-     * @dev All logic and calculation happens here
+     * @dev All logic and calculation happens here. Values are passed from storage of IDOManager
      * @param idoId The IDO identifier
      * @param token The stablecoin address
      * @param totalRaised Total stablecoins raised for this IDO in this token
@@ -144,7 +127,7 @@ abstract contract ReservesManager {
 
     /**
      * @notice Internal function to execute stablecoin withdrawal
-     * @dev All validation happens here
+     * @dev All logic happens here. Values are passed from storage of IDOManager
      * @param idoId The IDO identifier
      * @param token The stablecoin address
      * @param amount The amount to withdraw
@@ -188,6 +171,7 @@ abstract contract ReservesManager {
 
     /**
      * @notice Internal function to withdraw unsold tokens
+     * @dev All logic happens here. Values are passed from storage of IDOManager
      * @param idoId The IDO identifier
      * @param tokenAddress The project token address
      * @param totalAllocation Total tokens allocated for the IDO
@@ -225,6 +209,7 @@ abstract contract ReservesManager {
 
     /**
      * @notice Internal function to withdraw refunded tokens
+     * @dev All logic happens here. Values are passed from storage of IDOManager
      * @param idoId The IDO identifier
      * @param tokenAddress The project token address
      * @param totalRefunded Total regular tokens refunded
@@ -260,6 +245,7 @@ abstract contract ReservesManager {
 
     /**
      * @notice Internal function to withdraw penalty fees
+     * @dev All logic happens here. Values are passed from storage of IDOManager
      * @param idoId The IDO identifier
      * @param stablecoin The stablecoin address
      * @param penaltyFeesCollectedAmount Total penalty fees collected for this IDO in this stablecoin

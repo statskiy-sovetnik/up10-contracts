@@ -11,14 +11,17 @@ contract AdminManager is IAdminManager, Ownable {
         isAdmin[_initialAdmin] = true;
     }
 
+    /// @inheritdoc IAdminManager
     function addAdmin(address _admin) external onlyOwner {
         isAdmin[_admin] = true;
     }
 
+    /// @inheritdoc IAdminManager
     function removeAdmin(address _admin) external onlyOwner {
         isAdmin[_admin] = false;
     }
 
+    /// @inheritdoc IAdminManager
     function isAdminAddress(address _addr) external view returns (bool) {
         return isAdmin[_addr];
     }

@@ -9,6 +9,7 @@ import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IIDOManager.sol";
+import "./interfaces/IReservesManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./Errors.sol";
 
@@ -52,6 +53,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
       ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
 
+    /// @inheritdoc IIDOManager
     function createIDO(IDOInput calldata idoInput) external onlyAdmin returns (uint256) {
         IDOInfo memory _idoInputInfo = idoInput.info;
         IDOSchedules memory _idoInputSchedules = idoInput.schedules;
@@ -125,6 +127,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         return idoId;
     }
 
+    /// @inheritdoc IIDOManager
     function invest(
         uint256 idoId,
         uint256 amount,
@@ -173,6 +176,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit Investment(idoId, msg.sender, amountInUSD, tokenIn, tokensBought, tokensBonus);
     }
 
+    /// @inheritdoc IIDOManager
     function claimTokens(uint256 idoId) external nonReentrant {
         IDO memory ido = idos[idoId];
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -203,6 +207,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit TokensClaimed(idoId, msg.sender, userTokensAmountToClaim);
     }
 
+    /// @inheritdoc IIDOManager
     function processRefund(uint256 idoId, bool fullRefund) external nonReentrant {
         IDOSchedules memory schedules = idoSchedules[idoId];
         IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
@@ -239,13 +244,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
-        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);        
+        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
     }
 
-    /**
-     * @notice Implementation of abstract function - thin wrapper with no logic
-     * @dev Reads storage and calls internal functions
-     */
+    /// @inheritdoc IReservesManager
     function withdrawStablecoins(
         uint256 idoId,
         address token,
@@ -264,10 +266,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
-    /**
-     * @notice Implementation of abstract function - thin wrapper with no logic
-     * @dev Reads storage and calls internal functions
-     */
+    /// @inheritdoc IReservesManager
     function withdrawUnsoldTokens(uint256 idoId) external override onlyReservesAdmin {
         IDOInfo memory info = idos[idoId].info;
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -281,10 +280,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
-    /**
-     * @notice Implementation of abstract function - thin wrapper with no logic
-     * @dev Reads storage and calls internal functions
-     */
+    /// @inheritdoc IReservesManager
     function withdrawRefundedTokens(uint256 idoId) external override onlyReservesAdmin {
         IDOInfo memory info = idos[idoId].info;
         IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
@@ -297,10 +293,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
-    /**
-     * @notice Implementation of abstract function - thin wrapper with no logic
-     * @dev Reads storage and calls internal functions
-     */
+    /// @inheritdoc IReservesManager
     function withdrawPenaltyFees(uint256 idoId, address stablecoin) external override onlyReservesAdmin {
         _withdrawPenaltyFees(
             idoId,
@@ -326,6 +319,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         _setAdminManager(_adminManager);
     }
 
+    /// @inheritdoc IIDOManager
     function setClaimStartTime(
         uint256 idoId,
         uint64 _claimStartTime
@@ -334,6 +328,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit ClaimStartTimeSet(idoId, _claimStartTime);
     }
 
+    /// @inheritdoc IIDOManager
     function setTgeTime(
         uint256 idoId,
         uint64 _tgeTime
@@ -342,6 +337,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit TgeTimeSet(idoId, _tgeTime);
     }
 
+    /// @inheritdoc IIDOManager
     function setIdoTime(
         uint256 idoId,
         uint64 _idoStartTime,
@@ -352,6 +348,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit IdoTimeSet(idoId, _idoStartTime, _idoEndTime);
     }
 
+    /// @inheritdoc IIDOManager
     function setTokenAddress(
         uint256 idoId,
         address _address
@@ -361,11 +358,13 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit TokenAddressSet(idoId, _address);
     }
 
+    /// @inheritdoc IIDOManager
     function setStaticPrice(address token, uint256 price) external onlyAdmin {
         staticPrices[token] = price;
         emit StaticPriceSet(token, price);
     }
 
+    /// @inheritdoc IIDOManager
     function setTwapPriceUsdt(
         uint256 idoId,
         uint256 twapPriceUsdt
@@ -380,13 +379,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         ________________________________________________________________
     */
 
-   function getIDOTotalAllocationUSD(uint256 idoId) external view returns (uint256) {
+    /// @inheritdoc IIDOManager
+    function getIDOTotalAllocationUSD(uint256 idoId) external view returns (uint256) {
         IDOInfo memory info = idos[idoId].info;
         IDOPricing memory pricing = idoPricing[idoId];
 
         return _convertToUSDT(info.totalAllocation, pricing.initialPriceUsdt);
     }
 
+    /// @inheritdoc IIDOManager
     function getIDOTotalAllocationByUserUSD(uint256 idoId) external view returns (uint256) {
         IDOInfo memory info = idos[idoId].info;
         IDOPricing memory pricing = idoPricing[idoId];
@@ -394,10 +395,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         return _convertToUSDT(info.totalAllocationByUser, pricing.initialPriceUsdt);
     }
 
+    /// @inheritdoc IIDOManager
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool) {
         return _isRefundAllowed(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][msg.sender], fullRefund);
     }
 
+    /// @inheritdoc IIDOManager
     function getTokensAvailableToClaim(
         uint256 idoId,
         address user
@@ -406,6 +409,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         return tokens + bonus;
     }
 
+    /// @inheritdoc IIDOManager
     function getTokensAvailableToRefund(
         uint256 idoId,
         address user,
@@ -420,6 +424,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
+    /// @inheritdoc IIDOManager
     function getTokensAvailableToRefundWithPenalty(
         uint256 idoId,
         address user,
@@ -434,10 +439,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         refundPercentAfterPenalty = _getRefundPercentAfterPenalty(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
     }
 
-    /**
-     * @notice Implementation of abstract function - thin wrapper with no logic
-     * @dev Reads storage and passes to internal _getWithdrawableAmount
-     */
+    /// @inheritdoc IReservesManager
     function getWithdrawableAmount(
         uint256 idoId,
         address token
@@ -453,15 +455,18 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
+    /// @inheritdoc IIDOManager
     function currentPhase(uint256 idoId) external view returns (Phase) {
         IDO memory ido = idos[idoId];
         return _currentPhase(ido);
     }
 
+    /// @inheritdoc IIDOManager
     function getUnlockedPercent(uint256 idoId) public view returns (uint256) {
         return _getUnlockedPercent(idoSchedules[idoId]);
     }
 
+    /// @inheritdoc IIDOManager
     function getUserInfo(
         uint256 idoId,
         address userAddr
