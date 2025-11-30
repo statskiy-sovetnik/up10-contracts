@@ -494,6 +494,99 @@ contract IDOManagerTest is Test {
         assertEq(idoManager.idoCount(), 2);
     }
 
+    function test_createIDO_RevertsZeroTotalAllocationByUser() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+
+        vm.expectRevert(abi.encodeWithSignature("InvalidUserAllocation()"));
+        _createIDOWithParams(
+            startTime,
+            endTime,
+            100e18,
+            0, // Zero total allocation by user
+            1000000e18,
+            30 days,
+            180 days,
+            1 days,
+            1000000
+        );
+    }
+
+    function test_createIDO_RevertsZeroInitialPrice() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+
+        IIDOManager.IDOInput memory input = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 1,
+                totalAllocated: 0,
+                minAllocationUSD: 100e18,
+                totalAllocationByUser: 10000e18,
+                totalAllocation: 1000000e18
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 2000000,
+                phase2BonusPercent: 1000000,
+                phase3BonusPercent: 500000
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 30 days,
+                vestingDuration: 180 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 1000000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: 500000,
+                fullRefundPenaltyBeforeTge: 200000,
+                refundPenalty: 1000000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: false
+            }),
+            initialPriceUsdt: 0, // Zero price
+            fullRefundPriceUsdt: 5e7
+        });
+
+        vm.expectRevert(abi.encodeWithSignature("InvalidPrice()"));
+        vm.prank(admin);
+        idoManager.createIDO(input);
+    }
+
+    function test_createIDO_Success_BoundaryValues() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 1); // Minimum duration
+
+        // Test with minimum valid values
+        uint256 idoId = _createIDOWithParams(
+            startTime,
+            endTime,
+            1,           // minAllocation
+            1,           // totalAllocationByUser
+            1,           // totalAllocation (minimum)
+            0,           // cliffDuration (can be 0)
+            1,           // vestingDuration (minimum)
+            1,           // unlockInterval (minimum)
+            HUNDRED_PERCENT // tgeUnlockPercent (100%)
+        );
+
+        assertEq(idoId, 1);
+    }
+
     // ============================================
     // invest Tests
     // ============================================
@@ -617,6 +710,45 @@ contract IDOManagerTest is Test {
         _investUser(user1, idoId, investAmount, address(usdt));
 
         assertEq(idoManager.totalRaisedInToken(idoId, address(usdt)), investAmount);
+    }
+
+    function test_invest_RevertsExceedsUserAllocation() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        // User limit is 10,000 USD, try to invest 15,000
+        _mintAndApprove(user1, address(usdt), 15000e6);
+
+        vm.expectRevert(abi.encodeWithSignature("ExceedsUserAllocation()"));
+        vm.prank(user1);
+        idoManager.invest(idoId, 15000e6, address(usdt));
+    }
+
+    function test_invest_RevertsExceedsTotalAllocation() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+
+        // Create IDO with small total allocation but large per-user limit
+        uint256 idoId = _createIDOWithParams(
+            startTime,
+            endTime,
+            100e18,
+            50000e18,    // High per-user limit
+            10000e18,    // Small total allocation
+            30 days,
+            180 days,
+            1 days,
+            1000000
+        );
+
+        // Try to invest more than total allocation allows
+        // With 20% bonus in Phase 1, 9000 USD investment would allocate 10,800 tokens (exceeds 10,000)
+        _mintAndApprove(user1, address(usdt), 9000e6);
+
+        vm.expectRevert(abi.encodeWithSignature("ExceedsTotalAllocation()"));
+        vm.prank(user1);
+        idoManager.invest(idoId, 9000e6, address(usdt));
     }
 
     // ============================================
@@ -744,6 +876,63 @@ contract IDOManagerTest is Test {
         idoManager.claimTokens(idoId);
     }
 
+    function test_claimTokens_RevertsInsufficientBalance() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+
+        // Set up lifecycle but mint insufficient tokens
+        uint64 tgeTime = uint64(block.timestamp + 10 days);
+        uint64 claimStartTime = tgeTime;
+
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, claimStartTime);
+        vm.stopPrank();
+
+        // Only mint 100e18 tokens (user1 needs 120e18 for TGE unlock)
+        idoToken.mint(address(idoManager), 100e18);
+
+        vm.warp(tgeTime);
+
+        vm.expectRevert(abi.encodeWithSignature("InsufficientIDOContractBalance()"));
+        vm.prank(user1);
+        idoManager.claimTokens(idoId);
+    }
+
+    function test_claimTokens_MultipleUsersExhaustSupply() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdt));
+
+        uint64 tgeTime = uint64(block.timestamp + 10 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Only mint enough for user1's TGE unlock
+        idoToken.mint(address(idoManager), 600e18);
+
+        vm.warp(tgeTime);
+
+        // User1 claims successfully
+        vm.prank(user1);
+        idoManager.claimTokens(idoId);
+
+        // User2 should fail - insufficient balance
+        vm.expectRevert(abi.encodeWithSignature("InsufficientIDOContractBalance()"));
+        vm.prank(user2);
+        idoManager.claimTokens(idoId);
+    }
+
     // ============================================
     // processRefund Tests
     // ============================================
@@ -782,6 +971,90 @@ contract IDOManagerTest is Test {
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSignature("NothingToRefund()"));
         idoManager.processRefund(idoId, true);
+    }
+
+    function test_processRefund_RevertsNothingToRefund_ZeroAllocation() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        // User never invested
+        vm.expectRevert(abi.encodeWithSignature("NothingToRefund()"));
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+    }
+
+    function test_processRefund_RevertsRefundNotAvailable() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+
+        // Create IDO with refund disabled
+        uint256 idoId = _createIDOWithParams(
+            startTime,
+            endTime,
+            100e18,      // minAllocation
+            10000e18,    // totalAllocationByUser
+            1000000e18,  // totalAllocation
+            30 days,     // cliffDuration
+            180 days,    // vestingDuration
+            1 days,      // unlockInterval
+            1000000      // tgeUnlockPercent
+        );
+
+        // Manually set refund policy to disallow refunds
+        vm.prank(admin);
+        idoManager.createIDO(IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 2,
+                totalAllocated: 0,
+                minAllocationUSD: 100e18,
+                totalAllocationByUser: 10000e18,
+                totalAllocation: 1000000e18
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 2000000,
+                phase2BonusPercent: 1000000,
+                phase3BonusPercent: 500000
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 30 days,
+                vestingDuration: 180 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 1000000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: 500000,
+                fullRefundPenaltyBeforeTge: 200000,
+                refundPenalty: 1000000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: false,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: false,
+                isFullRefundBeforeTGEAllowed: false,
+                isPartialRefundInCliffAllowed: false,
+                isFullRefundInCliffAllowed: false,
+                isPartialRefundInVestingAllowed: false,
+                isFullRefundInVestingAllowed: false
+            }),
+            initialPriceUsdt: 1e8,
+            fullRefundPriceUsdt: 5e7
+        }));
+
+        uint256 idoId2 = 2;
+        _investUser(user1, idoId2, 1000e6, address(usdt));
+
+        vm.expectRevert(abi.encodeWithSignature("RefundNotAvailable()"));
+        vm.prank(user1);
+        idoManager.processRefund(idoId2, true);
     }
 
     // ============================================
@@ -940,6 +1213,137 @@ contract IDOManagerTest is Test {
         assertEq(investedUsdt, 1000e18);
         assertEq(allocatedTokens, 1200e18);
         assertFalse(claimed);
+    }
+
+    // ============================================
+    // Getter Functions Tests (Branch Coverage)
+    // ============================================
+
+    function test_getIDOTotalAllocationUSD_Success() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        uint256 totalUSD = idoManager.getIDOTotalAllocationUSD(idoId);
+        assertEq(totalUSD, 1000000e18);
+    }
+
+    function test_getIDOTotalAllocationByUserUSD_Success() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        uint256 userLimit = idoManager.getIDOTotalAllocationByUserUSD(idoId);
+        assertEq(userLimit, 10000e18);
+    }
+
+    function test_isRefundAvailable_BeforeTGE_FullRefund() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+
+        vm.prank(user1);
+        bool available = idoManager.isRefundAvailable(idoId, true);
+        assertTrue(available);
+    }
+
+    function test_isRefundAvailable_AfterVesting_ReturnsFalse() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+        _setupFullLifecycle(idoId);
+        _advanceToAfterVesting(idoId);
+
+        vm.warp(vm.getBlockTimestamp() + 91 days); // Past timeout
+
+        vm.prank(user1);
+        bool available = idoManager.isRefundAvailable(idoId, true);
+        assertFalse(available);
+    }
+
+    function test_getTokensAvailableToClaim_BeforeTGE_RevertsTokensLocked() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+        _setupFullLifecycle(idoId);
+
+        vm.expectRevert(abi.encodeWithSignature("TokensLocked()"));
+        idoManager.getTokensAvailableToClaim(idoId, user1);
+    }
+
+    function test_getTokensAvailableToRefund_PartialRefund() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+        _setupFullLifecycle(idoId);
+        _advanceToAfterCliff(idoId);
+
+        uint256 refundable = idoManager.getTokensAvailableToRefund(idoId, user1, false);
+        assertGt(refundable, 0);
+    }
+
+    function test_getTokensAvailableToRefundWithPenalty_ReturnsCorrectPenalty() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        _investUser(user1, idoId, 1000e6, address(usdt));
+
+        (uint256 amount, uint256 penalty) =
+            idoManager.getTokensAvailableToRefundWithPenalty(idoId, user1, true);
+
+        assertGt(amount, 0);
+        assertGt(penalty, 0); // Should have some penalty
+    }
+
+    // ============================================
+    // Owner Functions Tests (Branch Coverage)
+    // ============================================
+
+    function test_setKYCRegistry_Success() public {
+        address newKYC = address(new KYCRegistry(owner));
+
+        vm.expectEmit(true, false, false, false);
+        emit IIDOManager.KYCRegistrySet(newKYC);
+
+        vm.prank(owner);
+        idoManager.setKYCRegistry(newKYC);
+
+        assertEq(address(idoManager.kyc()), newKYC);
+    }
+
+    function test_setKYCRegistry_RevertsNonOwner() public {
+        address newKYC = address(new KYCRegistry(owner));
+
+        vm.expectRevert(); // OwnableUnauthorizedAccount
+        vm.prank(user1);
+        idoManager.setKYCRegistry(newKYC);
+    }
+
+    function test_setAdminManager_Success() public {
+        address newAdmin = address(new AdminManager(owner, admin));
+
+        vm.expectEmit(true, false, false, false);
+        emit IIDOManager.AdminManagerSet(newAdmin);
+
+        vm.prank(owner);
+        idoManager.setAdminManager(newAdmin);
+
+        assertEq(address(idoManager.adminManager()), newAdmin);
+    }
+
+    function test_setAdminManager_RevertsNonOwner() public {
+        vm.expectRevert(); // OwnableUnauthorizedAccount
+        vm.prank(user1);
+        idoManager.setAdminManager(address(123));
     }
 
     // ============================================

@@ -830,7 +830,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
     }
 
     function _isTWAPUndervalued(IDOPricing memory _idoPricing) internal pure returns (bool) {
-        return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.fullRefundPriceUsdt;
+        return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.initialPriceUsdt;
     }
 
     function _isRefundBeforeTGEAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {

@@ -37,6 +37,11 @@ contract ReservesManagerHarness is ReservesManager {
         uint256 totalClaimed;
         uint256 totalAllocated;
         uint256 totalRefundedTokens;
+        address tokenAddress;
+        uint64 idoEndTime;
+        uint256 totalAllocation;
+        uint256 refundedBonus;
+        uint256 penaltyFeesCollected;
     }
 
     constructor(
@@ -82,17 +87,35 @@ contract ReservesManagerHarness is ReservesManager {
         );
     }
 
-    // Stub implementations for new withdrawal functions (not tested in this unit test)
-    function withdrawUnsoldTokens(uint256) external pure override {
-        revert("Not implemented in test harness");
+    // Implement withdrawal functions for testing
+    function withdrawUnsoldTokens(uint256 idoId) external override onlyReservesAdmin {
+        TestIDO memory ido = testIdos[idoId];
+        _withdrawUnsoldTokens(
+            idoId,
+            ido.tokenAddress,
+            ido.totalAllocation,
+            ido.totalAllocated,
+            ido.idoEndTime
+        );
     }
 
-    function withdrawRefundedTokens(uint256) external pure override {
-        revert("Not implemented in test harness");
+    function withdrawRefundedTokens(uint256 idoId) external override onlyReservesAdmin {
+        TestIDO memory ido = testIdos[idoId];
+        _withdrawRefundedTokens(
+            idoId,
+            ido.tokenAddress,
+            ido.totalRefundedTokens,
+            ido.refundedBonus
+        );
     }
 
-    function withdrawPenaltyFees(uint256, address) external pure override {
-        revert("Not implemented in test harness");
+    function withdrawPenaltyFees(uint256 idoId, address stablecoin) external override onlyReservesAdmin {
+        TestIDO memory ido = testIdos[idoId];
+        _withdrawPenaltyFees(
+            idoId,
+            stablecoin,
+            ido.penaltyFeesCollected
+        );
     }
 
     // Helper to set test data
@@ -109,7 +132,40 @@ contract ReservesManagerHarness is ReservesManager {
             totalRefunded: totalRefunded,
             totalClaimed: totalClaimed,
             totalAllocated: totalAllocated,
-            totalRefundedTokens: totalRefundedTokens
+            totalRefundedTokens: totalRefundedTokens,
+            tokenAddress: address(0),
+            idoEndTime: 0,
+            totalAllocation: 0,
+            refundedBonus: 0,
+            penaltyFeesCollected: 0
+        });
+    }
+
+    // Helper to set test data with all fields
+    function setTestIDOFull(
+        uint256 idoId,
+        uint256 totalRaised,
+        uint256 totalRefunded,
+        uint256 totalClaimed,
+        uint256 totalAllocated,
+        uint256 totalRefundedTokens,
+        address tokenAddress,
+        uint64 idoEndTime,
+        uint256 totalAllocation,
+        uint256 refundedBonus,
+        uint256 penaltyFeesCollected
+    ) external {
+        testIdos[idoId] = TestIDO({
+            totalRaised: totalRaised,
+            totalRefunded: totalRefunded,
+            totalClaimed: totalClaimed,
+            totalAllocated: totalAllocated,
+            totalRefundedTokens: totalRefundedTokens,
+            tokenAddress: tokenAddress,
+            idoEndTime: idoEndTime,
+            totalAllocation: totalAllocation,
+            refundedBonus: refundedBonus,
+            penaltyFeesCollected: penaltyFeesCollected
         });
     }
 
